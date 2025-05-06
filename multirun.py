@@ -32,6 +32,7 @@ from cpuinfo import *
 from gpuinfo import *
 from slot import Slot
 from threaded import threaded
+import threading
 
 cpus = get_cpu_info()
 gpus_nv  = get_gpu_info_nvidia()
@@ -140,8 +141,43 @@ def runMergeCommand(tag, workdir, inputs, output, verbose):
     raise RuntimeError(f'Exit code {pipe.returncode} while running "' + cmdline + '"\n\n' + pipe.stderr.decode(sys.stdout.encoding))
 
 
+
+hasRunned = False
+def nvSysProfile(filename, workdir):
+  """
+  Takes all the arguments of the singleCmsRun, and customize the config py file to include the NVService
+  """
+
+  global hasRunned
+  lock = threading.Lock()
+  with lock:
+    if hasRunned:
+      return filename
+    else:
+      # Benchmark-type job
+      
+      # Avoid this code being reached again (by other jobs)
+      hasRunned = True
+      
+      # Load the CMS process into the processObject.
+      # If NVProfilerService not in process, add it
+      processObject = parseProcess(filename)
+      if "NVProfilerService" not in processObject.__dict__:
+        # Create a new process.py file with the NVProfilerService
+        newfilename = filename.replace(".py", "_nvprofJob.py")
+        with open(filename, 'r') as oldfile, open(newfilename, 'w') as newfile:
+          # copy the original content to the new configuration file
+          oldfile.seek(0)
+          newfile.write(oldfile.read())
+          # update the number of events in the temporary file
+          newfile.write('\n# Include the NVProfilerService\nprocess.NVProfilerService = cms.Service("NVProfilerService")\n')
+        filename = newfilename
+        
+      return filename
+
+
 @threaded
-def singleCmsRun(filename, workdir, logdir = None, keep = [], autodelete = [], autodelete_delay = 60., verbose = False, slot = None, executable = 'cmsRun', *args):
+def singleCmsRun(filename, workdir, logdir = None, keep = [], autodelete = [], autodelete_delay = 60., verbose = False, slot = None, nvprofargs = None, executable = 'cmsRun', *args):
   if slot is None:
       slot = Slot()
 
@@ -161,6 +197,19 @@ def singleCmsRun(filename, workdir, logdir = None, keep = [], autodelete = [], a
 
   # command to execute
   command = [ executable, filename ] + list(args)
+  
+  # if the NVService is requested, then attach once to a non-warmup job
+  # (warmup job are ignored)
+  # "nsys profile --trace=nvtx,cuda,osrt --gpu-metrics-device=all -y 60 -d 60"
+  if nvprofargs:
+    newfilename = nvSysProfile(filename, workdir)
+    if newfilename != filename:
+      # Update filename
+      command[1] = newfilename
+      # Prepend nsys commands
+      nsysCmds = nvprofargs.split(" ")
+      command = nsysCmds + command
+  
   # shell environment
   environment = os.environ.copy()
   # command line for the verbose option
@@ -197,6 +246,7 @@ def singleCmsRun(filename, workdir, logdir = None, keep = [], autodelete = [], a
   timestamp = datetime.now()
   autostamp = timestamp
   buffer_data.append((timestamp, 0, 0, 0))  # time, vsize, rss, pss
+  # print("command", command)
   job = subprocess.Popen(command, cwd = workdir, env = environment, stdout = stdout, stderr = stderr)
   proc = psutil.Process(job.pid)
 
@@ -357,6 +407,7 @@ def multiCmsRun(
     automerge = True,               # automatically merge supported output across all jobs
     autodelete = [],                # automatically delete files matching the given patterns while running the jobs (default: do not autodelete)
     autodelete_delay = 60.,         # check for files to autodelete with this interval (default: 60s)
+    nvprof = None,                  # run a single non-warmup job with NVProfilerService custmization. Usage "nsys profile --trace=nvtx,cuda,osrt --gpu-metrics-device=all -y 60 -d 60" (default: None)
     executable = 'cmsRun',          # executable to run, usually cmsRun
     *args):                         # additional arguments passed to the executable
 
@@ -585,6 +636,7 @@ def multiCmsRun(
         autodelete_delay = autodelete_delay,
         verbose = verbose,
         slot = slots[job],
+        nvprofargs = nvprof,
         executable = executable,
         *args)
 

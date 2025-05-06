@@ -270,6 +270,13 @@ If an empty list is used, all GPUs are disabled and no GPUs are used by the job.
             default = 60.,
             help = 'check for files to autodelete with this interval [default: 60s]')
 
+        self.parser.add_argument('-nvp', '--nvprof-cmds',
+            dest='nvprof',
+            nargs='?',                  # Accept zero or one argument
+            const='nsys profile',       # Used if flag is passed without a value
+            default=None,               # Used if flag is not passed at all
+            help='Run single-job NVProfiler service [default: disabled if not passed].\n Example: "nsys profile --trace=nvtx,cuda,osrt --gpu-metrics-device=all -y 60 -d 60" to start collecting after 60 seconds for 60 seconds with gpu metrics and nvxt,cuda,osrt traces.')
+
 
     def parse(self, args):
         # parse the command line options

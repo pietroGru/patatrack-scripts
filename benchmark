@@ -45,6 +45,7 @@ if __name__ == "__main__":
     'automerge'           : opts.automerge,
     'autodelete'          : opts.autodelete,
     'autodelete_delay'    : opts.autodelete_delay,
+    'nvprof'              : opts.nvprof,
   }
 
   # print a system overview
@@ -82,7 +83,7 @@ if __name__ == "__main__":
 
     # benchmark reading the input data
     print('Benchmarking only I/O')
-    io_options = dict(options, logdir = None, keep = [], data = None)
+    io_options = dict(options, logdir = None, keep = [], data = None, nvprof = None)
     multiCmsRun(io_process, **io_options)
     print()
     # wait the required number of seconds between the I/O benchmark and the actual measurement
@@ -91,7 +92,7 @@ if __name__ == "__main__":
 
   print('Benchmarking %s' % opts.config)
   multiCmsRun(process, **options)
-
+  "nsys profile --trace=nvtx,cuda,osrt --gpu-metrics-device=all -y 60 -d 60"
   # close the CSV file
   if options['data']:
     options['data'].close()
